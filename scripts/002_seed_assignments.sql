@@ -1,0 +1,83 @@
+-- List of all students from B3 Jour
+DO $$
+DECLARE
+  students TEXT[] := ARRAY[
+    'AKAMBA FOUMANE DONALD KEVIN',
+    'ASSOUMOU ALO''O HAROLD-DIDIER',
+    'BILOA MENGUELE FIDELLIA BRENDA',
+    'KETCHEMEN JORYN ELVIN',
+    'MESSINA MANDA OCEANNE SANDRA',
+    'NDOUNGUE MAFOUO NODEMBRICE',
+    'NKOU TONY MARVIN',
+    'NOMO BELLA NATHANIEL MARC PHILIPPE GEOVANI',
+    'ABDOURAMANE ISSA',
+    'ANANGUE YVES SAN-NONG',
+    'BABA A BABA VICTOR AYMERICKK',
+    'DEFFO DJOUGNE ANGE RYRIAM',
+    'EMALE KANG MARIE-JOSEPHINE',
+    'FONKOU OUMBE BOOZ MELKI',
+    'GWATHER OSCAR ARNAUL',
+    'HABIBA DAIROU',
+    'HALIL KHALED',
+    'KENFACK AZANGUE CHRIS ALANE',
+    'KENGNE GAMGA LINDSAY REBECCA',
+    'KOMDJAM TCHOUCTIO ABIGAEL',
+    'LOWE KENGNE MURIELLE CLAIRE',
+    'MBOUDJA MICHAELLA YEILLEN-ROSE',
+    'MOHAMADOU BACHIROUH OUSEINI',
+    'NGONO CATHERINE SINTIA',
+    'NOA FRANCK JUDE',
+    'NOUPIATCHE TCHOUNGA MARC ETIENNE',
+    'OLINGA YENE RENE DAVY',
+    'SONTIA NGNINTEDEM ZIDANE JUNIOR',
+    'SOH HONORE LAURENT',
+    'ALAIN GEREMY THIEBA NAMBOGONA-NGBANGA',
+    'ANDRE THOMAS BENGON',
+    'BAKENEGHE JEFF JANIS',
+    'BOUPAH AKOUE LANDRY BRAYAND',
+    'EWOLLO ETOUNDI GABRIELLE AGNES FLORE',
+    'FOMAGHA NOTSAWO JORDAN',
+    'HANDY EBELLE FLORA ELISABETH',
+    'IHEANACHO ANDRIEL TIMOTHY',
+    'KENMOGNE DJOKO DONOVAN',
+    'LDARDAO RIGOBERT',
+    'MBOGNING KOUEMETIO ALEX',
+    'MOUKALLA EWANE MINKOSSI MON-RAYAN',
+    'MVELE NYOGOG SYLVAIN NELL BLAISE',
+    'NGUETSA JUNIOR STEPHANE-CELESTE',
+    'NGWE MBALA EMMANUEL MICHEL',
+    'NKOT VALERIE MADELEINE',
+    'ONDOA ONDOA IV GABRIELLA TAMAR',
+    'PIODJOU MAEVA CENDRA',
+    'POUHE ELIE JUNIOR',
+    'TAMBA PESSYRA VEL TRESOR',
+    'TAMO LLOYD EVRA',
+    'TCHOUCTIO YEPCHI MARIE-FRANCE'
+  ];
+  shuffled TEXT[];
+  i INTEGER;
+  j INTEGER;
+  temp TEXT;
+BEGIN
+  -- Create a shuffled copy of the array
+  shuffled := students;
+  
+  -- Fisher-Yates shuffle algorithm
+  FOR i IN REVERSE array_length(shuffled, 1)..2 LOOP
+    j := 1 + floor(random() * i)::INTEGER;
+    temp := shuffled[i];
+    shuffled[i] := shuffled[j];
+    shuffled[j] := temp;
+  END LOOP;
+  
+  -- Ensure no one gets themselves (rotate the shuffled array)
+  -- This creates a valid Secret Santa assignment
+  FOR i IN 1..array_length(students, 1) LOOP
+    INSERT INTO public.assignments (student_name, secret_friend_name)
+    VALUES (
+      students[i],
+      shuffled[CASE WHEN i = array_length(students, 1) THEN 1 ELSE i + 1 END]
+    )
+    ON CONFLICT (student_name) DO NOTHING;
+  END LOOP;
+END $$;
