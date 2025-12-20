@@ -29,7 +29,7 @@ export default function Home() {
     try {
       const trimmedName = name.trim()
 
-      // 1. Vérifier si l'étudiant existe dans la table students
+      // ÉTAPE 1: Vérifier si l'étudiant existe dans la table students
       const { data: studentExists, error: studentCheckError } = await supabase
         .from("students")
         .select("name")
@@ -44,16 +44,16 @@ export default function Home() {
 
       const exactStudentName = studentExists.name
 
-      // 2. Vérifier si cet étudiant a déjà une assignation
-      const { data: existingAssignment, error: assignmentCheckError } = await supabase
+      // ÉTAPE 2: Vérifier si CET ÉTUDIANT SPÉCIFIQUE a déjà une assignation
+      const { data: existingAssignment } = await supabase
         .from("assignments")
         .select("secret_friend_name")
         .eq("student_name", exactStudentName)
         .maybeSingle()
 
-      // Si l'étudiant a déjà un ami secret assigné
+      // Si CET étudiant a déjà un ami secret, on le retourne
       if (existingAssignment) {
-        console.log("Assignation existante trouvée")
+        console.log(`✅ ${exactStudentName} a déjà un ami: ${existingAssignment.secret_friend_name}`)
         setTimeout(() => {
           setSecretFriend(existingAssignment.secret_friend_name)
           setShowResult(true)
@@ -62,10 +62,10 @@ export default function Home() {
         return
       }
 
-      // 3. Sinon, faire un nouveau tirage pour cet étudiant
-      console.log("Aucune assignation trouvée. Tirage en cours...")
+      // ÉTAPE 3: CET étudiant n'a PAS encore de tirage → On fait un nouveau tirage JUSTE POUR LUI
+      console.log(`🎲 Nouveau tirage pour ${exactStudentName}...`)
 
-      // Récupérer tous les étudiants
+      // Récupérer TOUS les étudiants
       const { data: allStudents, error: studentsError } = await supabase
         .from("students")
         .select("name")
@@ -76,44 +76,47 @@ export default function Home() {
         return
       }
 
-      // Récupérer les amis secrets déjà assignés (pour éviter les doublons)
-      const { data: alreadyAssigned, error: assignedError } = await supabase
+      // Récupérer UNIQUEMENT les noms qui ont DÉJÀ ÉTÉ ASSIGNÉS comme amis secrets
+      const { data: alreadyAssigned } = await supabase
         .from("assignments")
         .select("secret_friend_name")
 
-      if (assignedError) {
-        console.error("Erreur lors de la récupération des assignations:", assignedError)
-      }
-
       const assignedNames = new Set(alreadyAssigned?.map(a => a.secret_friend_name) || [])
+      console.log(`📋 Amis déjà assignés (${assignedNames.size}):`, Array.from(assignedNames))
 
-      // Filtrer les étudiants disponibles (pas encore assignés comme ami secret)
-      // ET ne pas s'assigner soi-même
+      // Filtrer: prendre SEULEMENT ceux qui ne sont PAS encore amis secrets de quelqu'un
+      // ET ne pas se choisir soi-même
       let availableStudents = allStudents
         .map(s => s.name)
         .filter(studentName => 
-          !assignedNames.has(studentName) && 
-          studentName !== exactStudentName
+          !assignedNames.has(studentName) &&  // Pas encore assigné
+          studentName !== exactStudentName     // Pas soi-même
         )
 
-      // Si tous les autres sont déjà pris, on permet de réassigner (cas limite)
+      console.log(`✨ Étudiants disponibles (${availableStudents.length}):`, availableStudents)
+
+      // Cas limite: si TOUT LE MONDE sauf soi-même a déjà été assigné
       if (availableStudents.length === 0) {
+        console.log("⚠️ Tous les autres sont déjà pris, on permet les doublons")
         availableStudents = allStudents
           .map(s => s.name)
           .filter(studentName => studentName !== exactStudentName)
       }
 
+      // Si vraiment personne n'est disponible (ne devrait jamais arriver)
       if (availableStudents.length === 0) {
         setError("Plus d'amis secrets disponibles. Contactez l'administrateur.")
         setIsLoading(false)
         return
       }
 
-      // Choisir aléatoirement un ami secret parmi les disponibles
+      // TIRAGE ALÉATOIRE parmi les disponibles
       const randomIndex = Math.floor(Math.random() * availableStudents.length)
       const selectedSecretFriend = availableStudents[randomIndex]
 
-      // 4. Enregistrer l'assignation dans la BD
+      console.log(`🎯 Tirage: ${exactStudentName} → ${selectedSecretFriend}`)
+
+      // ÉTAPE 4: Enregistrer UNIQUEMENT cette assignation dans la BD
       const { error: insertError } = await supabase
         .from("assignments")
         .insert({
@@ -122,15 +125,15 @@ export default function Home() {
         })
 
       if (insertError) {
-        console.error("Erreur lors de l'insertion:", insertError)
+        console.error("❌ Erreur insertion:", insertError)
         setError("Erreur lors de l'enregistrement du tirage.")
         setIsLoading(false)
         return
       }
 
-      console.log(`Tirage réussi: ${exactStudentName} → ${selectedSecretFriend}`)
+      console.log(`✅ Assignation enregistrée en BD`)
 
-      // 5. Afficher le résultat avec animation
+      // ÉTAPE 5: Afficher le résultat
       setTimeout(() => {
         setSecretFriend(selectedSecretFriend)
         setShowResult(true)
@@ -138,7 +141,7 @@ export default function Home() {
       }, 1500)
 
     } catch (err) {
-      console.error("Erreur:", err)
+      console.error("❌ Erreur:", err)
       setError("Une erreur s'est produite. Veuillez réessayer.")
       setIsLoading(false)
     }
