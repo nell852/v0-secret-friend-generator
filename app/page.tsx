@@ -9,30 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Gift, Sparkles, Heart, Copy, Check } from "lucide-react"
 
-// Fonction pour mélanger un tableau (algorithme Fisher-Yates)
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array]
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
-  return shuffled
-}
-
-// Fonction pour créer un tirage circulaire (chacun offre à quelqu'un)
-function createSecretSantaAssignments(students: string[]): Map<string, string> {
-  const shuffled = shuffleArray(students)
-  const assignments = new Map<string, string>()
-  
-  for (let i = 0; i < shuffled.length; i++) {
-    const giver = shuffled[i]
-    const receiver = shuffled[(i + 1) % shuffled.length] // Circulaire
-    assignments.set(giver, receiver)
-  }
-  
-  return assignments
-}
-
 export default function Home() {
   const [name, setName] = useState("")
   const [secretFriend, setSecretFriend] = useState<string | null>(null)
@@ -51,74 +27,116 @@ export default function Home() {
     const supabase = createClient()
 
     try {
-      // 1. Vérifier si des assignations existent déjà
-      const { data: existingAssignments, error: checkError } = await supabase
-        .from("assignments")
-        .select("student_name, secret_friend_name")
-        .limit(1)
+      const trimmedName = name.trim()
 
-      if (checkError) throw checkError
-
-      // 2. Si aucune assignation n'existe, faire le tirage automatique
-      if (!existingAssignments || existingAssignments.length === 0) {
-        console.log("Aucune assignation trouvée. Lancement du tirage automatique...")
-
-        // Récupérer tous les étudiants (supposons qu'il y a une table 'students')
-        // Ou vous pouvez avoir une liste hardcodée
-        const { data: students, error: studentsError } = await supabase
-          .from("students")
-          .select("name")
-
-        if (studentsError || !students || students.length === 0) {
-          setError("Impossible de récupérer la liste des étudiants.")
-          setIsLoading(false)
-          return
-        }
-
-        // Créer les assignations aléatoires
-        const studentNames = students.map(s => s.name)
-        const assignments = createSecretSantaAssignments(studentNames)
-
-        // Préparer les données à insérer
-        const assignmentsData = Array.from(assignments.entries()).map(([student, secret]) => ({
-          student_name: student,
-          secret_friend_name: secret
-        }))
-
-        // Insérer toutes les assignations en BD
-        const { error: insertError } = await supabase
-          .from("assignments")
-          .insert(assignmentsData)
-
-        if (insertError) {
-          console.error("Erreur lors de l'insertion:", insertError)
-          setError("Erreur lors de la création du tirage.")
-          setIsLoading(false)
-          return
-        }
-
-        console.log("Tirage automatique complété avec succès!")
-      }
-
-      // 3. Chercher l'assignation de l'étudiant
-      const { data, error: fetchError } = await supabase
-        .from("assignments")
-        .select("secret_friend_name")
-        .ilike("student_name", name.trim())
+      // 1. Vérifier si l'étudiant existe dans la table students
+      const { data: studentExists, error: studentCheckError } = await supabase
+        .from("students")
+        .select("name")
+        .ilike("name", trimmedName)
         .single()
 
-      if (fetchError || !data) {
-        setError("Nom non trouvé. Vérifiez l'orthographe et réessayez.")
+      if (studentCheckError || !studentExists) {
+        setError("Nom non trouvé dans la liste des étudiants. Vérifiez l'orthographe.")
         setIsLoading(false)
         return
       }
 
-      // Simuler un suspense avec délai d'animation
+      const exactStudentName = studentExists.name
+
+      // 2. Vérifier si cet étudiant a déjà une assignation
+      const { data: existingAssignment, error: assignmentCheckError } = await supabase
+        .from("assignments")
+        .select("secret_friend_name")
+        .eq("student_name", exactStudentName)
+        .maybeSingle()
+
+      // Si l'étudiant a déjà un ami secret assigné
+      if (existingAssignment) {
+        console.log("Assignation existante trouvée")
+        setTimeout(() => {
+          setSecretFriend(existingAssignment.secret_friend_name)
+          setShowResult(true)
+          setIsLoading(false)
+        }, 1500)
+        return
+      }
+
+      // 3. Sinon, faire un nouveau tirage pour cet étudiant
+      console.log("Aucune assignation trouvée. Tirage en cours...")
+
+      // Récupérer tous les étudiants
+      const { data: allStudents, error: studentsError } = await supabase
+        .from("students")
+        .select("name")
+
+      if (studentsError || !allStudents || allStudents.length === 0) {
+        setError("Impossible de récupérer la liste des étudiants.")
+        setIsLoading(false)
+        return
+      }
+
+      // Récupérer les amis secrets déjà assignés (pour éviter les doublons)
+      const { data: alreadyAssigned, error: assignedError } = await supabase
+        .from("assignments")
+        .select("secret_friend_name")
+
+      if (assignedError) {
+        console.error("Erreur lors de la récupération des assignations:", assignedError)
+      }
+
+      const assignedNames = new Set(alreadyAssigned?.map(a => a.secret_friend_name) || [])
+
+      // Filtrer les étudiants disponibles (pas encore assignés comme ami secret)
+      // ET ne pas s'assigner soi-même
+      let availableStudents = allStudents
+        .map(s => s.name)
+        .filter(studentName => 
+          !assignedNames.has(studentName) && 
+          studentName !== exactStudentName
+        )
+
+      // Si tous les autres sont déjà pris, on permet de réassigner (cas limite)
+      if (availableStudents.length === 0) {
+        availableStudents = allStudents
+          .map(s => s.name)
+          .filter(studentName => studentName !== exactStudentName)
+      }
+
+      if (availableStudents.length === 0) {
+        setError("Plus d'amis secrets disponibles. Contactez l'administrateur.")
+        setIsLoading(false)
+        return
+      }
+
+      // Choisir aléatoirement un ami secret parmi les disponibles
+      const randomIndex = Math.floor(Math.random() * availableStudents.length)
+      const selectedSecretFriend = availableStudents[randomIndex]
+
+      // 4. Enregistrer l'assignation dans la BD
+      const { error: insertError } = await supabase
+        .from("assignments")
+        .insert({
+          student_name: exactStudentName,
+          secret_friend_name: selectedSecretFriend
+        })
+
+      if (insertError) {
+        console.error("Erreur lors de l'insertion:", insertError)
+        setError("Erreur lors de l'enregistrement du tirage.")
+        setIsLoading(false)
+        return
+      }
+
+      console.log(`Tirage réussi: ${exactStudentName} → ${selectedSecretFriend}`)
+
+      // 5. Afficher le résultat avec animation
       setTimeout(() => {
-        setSecretFriend(data.secret_friend_name)
+        setSecretFriend(selectedSecretFriend)
         setShowResult(true)
         setIsLoading(false)
       }, 1500)
+
     } catch (err) {
       console.error("Erreur:", err)
       setError("Une erreur s'est produite. Veuillez réessayer.")
@@ -205,8 +223,7 @@ export default function Home() {
 
               <div className="mt-6 pt-6 border-t text-center">
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Chaque étudiant a été assigné à un ami imaginaire de manière aléatoire et sécurisée. Tu ne peux voir
-                  que ton propre ami imaginaire.
+                  Ton ami imaginaire sera tiré au sort lors de ta première recherche et restera le même à chaque fois.
                 </p>
               </div>
             </CardContent>
@@ -253,7 +270,7 @@ export default function Home() {
 
               <div className="pt-4 border-t">
                 <p className="text-sm text-muted-foreground text-center leading-relaxed">
-                  Fais un beau cadeau à ton ami imaginaire et garde cette information secrète!
+                  Fais un beau cadeau à ton ami imaginaire et garde cette information secrète! 🎁
                 </p>
               </div>
             </CardContent>
