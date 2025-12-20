@@ -9,6 +9,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Gift, Sparkles, Heart, Copy, Check } from "lucide-react"
 
+// Fonction pour mélanger un tableau (algorithme Fisher-Yates)
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled
+}
+
+// Fonction pour créer un tirage circulaire (chacun offre à quelqu'un)
+function createSecretSantaAssignments(students: string[]): Map<string, string> {
+  const shuffled = shuffleArray(students)
+  const assignments = new Map<string, string>()
+  
+  for (let i = 0; i < shuffled.length; i++) {
+    const giver = shuffled[i]
+    const receiver = shuffled[(i + 1) % shuffled.length] // Circulaire
+    assignments.set(giver, receiver)
+  }
+  
+  return assignments
+}
+
 export default function Home() {
   const [name, setName] = useState("")
   const [secretFriend, setSecretFriend] = useState<string | null>(null)
@@ -27,7 +51,56 @@ export default function Home() {
     const supabase = createClient()
 
     try {
-      // Search for the student's assignment
+      // 1. Vérifier si des assignations existent déjà
+      const { data: existingAssignments, error: checkError } = await supabase
+        .from("assignments")
+        .select("student_name, secret_friend_name")
+        .limit(1)
+
+      if (checkError) throw checkError
+
+      // 2. Si aucune assignation n'existe, faire le tirage automatique
+      if (!existingAssignments || existingAssignments.length === 0) {
+        console.log("Aucune assignation trouvée. Lancement du tirage automatique...")
+
+        // Récupérer tous les étudiants (supposons qu'il y a une table 'students')
+        // Ou vous pouvez avoir une liste hardcodée
+        const { data: students, error: studentsError } = await supabase
+          .from("students")
+          .select("name")
+
+        if (studentsError || !students || students.length === 0) {
+          setError("Impossible de récupérer la liste des étudiants.")
+          setIsLoading(false)
+          return
+        }
+
+        // Créer les assignations aléatoires
+        const studentNames = students.map(s => s.name)
+        const assignments = createSecretSantaAssignments(studentNames)
+
+        // Préparer les données à insérer
+        const assignmentsData = Array.from(assignments.entries()).map(([student, secret]) => ({
+          student_name: student,
+          secret_friend_name: secret
+        }))
+
+        // Insérer toutes les assignations en BD
+        const { error: insertError } = await supabase
+          .from("assignments")
+          .insert(assignmentsData)
+
+        if (insertError) {
+          console.error("Erreur lors de l'insertion:", insertError)
+          setError("Erreur lors de la création du tirage.")
+          setIsLoading(false)
+          return
+        }
+
+        console.log("Tirage automatique complété avec succès!")
+      }
+
+      // 3. Chercher l'assignation de l'étudiant
       const { data, error: fetchError } = await supabase
         .from("assignments")
         .select("secret_friend_name")
@@ -40,14 +113,14 @@ export default function Home() {
         return
       }
 
-      // Simulate suspense with animation delay
+      // Simuler un suspense avec délai d'animation
       setTimeout(() => {
         setSecretFriend(data.secret_friend_name)
         setShowResult(true)
         setIsLoading(false)
       }, 1500)
     } catch (err) {
-      console.error("[v0] Error fetching assignment:", err)
+      console.error("Erreur:", err)
       setError("Une erreur s'est produite. Veuillez réessayer.")
       setIsLoading(false)
     }
@@ -102,7 +175,7 @@ export default function Home() {
                     className="text-base"
                     disabled={isLoading}
                   />
-                  <p className="text-xs text-muted-foreground">Tape tes noms et prenoms en lettres Majuscules </p>
+                  <p className="text-xs text-muted-foreground">Tape tes noms et prénoms en lettres Majuscules</p>
                 </div>
 
                 {error && (
