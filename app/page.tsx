@@ -48,7 +48,7 @@ export default function Home() {
       const { data: existingAssignment } = await supabase
         .from("assignments")
         .select("secret_friend_name")
-        .eq("student_name", exactStudentName)
+        .ilike("student_name", exactStudentName)
         .maybeSingle()
 
       // Si CET étudiant a déjà un ami secret, on le retourne
