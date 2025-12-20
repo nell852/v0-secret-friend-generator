@@ -102,7 +102,7 @@ export default function Home() {
                     className="text-base"
                     disabled={isLoading}
                   />
-                  <p className="text-xs text-muted-foreground">Tape ton nom exactement comme sur la liste de classe</p>
+                  <p className="text-xs text-muted-foreground">Tape tes noms et prenoms en lettres Majuscules </p>
                 </div>
 
                 {error && (
