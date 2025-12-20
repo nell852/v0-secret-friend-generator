@@ -30,19 +30,28 @@ export default function Home() {
       const trimmedName = name.trim()
 
       // ÉTAPE 1: Vérifier si l'étudiant existe dans la table students
+      // Recherche flexible : nom partiel accepté
       const { data: studentExists, error: studentCheckError } = await supabase
         .from("students")
         .select("name")
-        .ilike("name", trimmedName)
-        .single()
+        .ilike("name", `%${trimmedName}%`)
+        .limit(10)
 
-      if (studentCheckError || !studentExists) {
+      if (studentCheckError || !studentExists || studentExists.length === 0) {
         setError("Nom non trouvé dans la liste des étudiants. Vérifiez l'orthographe.")
         setIsLoading(false)
         return
       }
 
-      const exactStudentName = studentExists.name
+      // Si plusieurs résultats trouvés, demander de préciser
+      if (studentExists.length > 1) {
+        const names = studentExists.map(s => s.name).join(", ")
+        setError(`Plusieurs étudiants trouvés : ${names}. Veuillez préciser.`)
+        setIsLoading(false)
+        return
+      }
+
+      const exactStudentName = studentExists[0].name
 
       // ÉTAPE 2: Vérifier si CET ÉTUDIANT SPÉCIFIQUE a déjà une assignation
       const { data: existingAssignment } = await supabase
@@ -184,19 +193,19 @@ export default function Home() {
               <form onSubmit={handleReveal} className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="name" className="text-base font-medium">
-                    Entre ton nom complet
+                    Entre ton nom (complet ou partiel)
                   </Label>
                   <Input
                     id="name"
                     type="text"
-                    placeholder="Ex: NOMO BELLA NATHANIEL MARC PHILIPPE GEOVANI"
+                    placeholder="Ex: NOMO ou NATHANIEL ou NOMO BELLA"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                     className="text-base"
                     disabled={isLoading}
                   />
-                  <p className="text-xs text-muted-foreground">Tape tes noms et prénoms en lettres Majuscules</p>
+                  <p className="text-xs text-muted-foreground">Tu peux taper juste ton nom de famille ou un de tes prénoms</p>
                 </div>
 
                 {error && (
