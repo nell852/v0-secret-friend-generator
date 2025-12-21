@@ -17,35 +17,45 @@ export default function Home() {
   const [showResult, setShowResult] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isRevealed, setIsRevealed] = useState(false)
-  const [countdown, setCountdown] = useState(10)
-  const isSubmitting = useRef(false) // Verrou pour éviter les soumissions multiples
+  const isSubmitting = useRef(false)
 
-  // Compteur de 10 secondes avant de cacher automatiquement
-  useEffect(() => {
-    if (showResult && countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000)
-      return () => clearTimeout(timer)
-    }
-    if (countdown === 0 && showResult) {
-      // Réinitialiser complètement après 10 secondes
-      handleAutoReset()
-    }
-  }, [countdown, showResult])
+  // Fonction pour créer les confettis
+  const createConfetti = () => {
+    const colors = ['#FF6B9D', '#C44569', '#FFA07A', '#FFD700', '#FF69B4', '#9B59B6']
+    const confettiCount = 50
 
-  const handleAutoReset = () => {
-    setName("")
-    setSecretFriend(null)
-    setShowResult(false)
-    setError(null)
-    setCopied(false)
-    setIsRevealed(false)
-    setCountdown(10)
+    for (let i = 0; i < confettiCount; i++) {
+      const confetti = document.createElement('div')
+      confetti.style.position = 'fixed'
+      confetti.style.width = '10px'
+      confetti.style.height = '10px'
+      confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)]
+      confetti.style.left = Math.random() * 100 + '%'
+      confetti.style.top = '-10px'
+      confetti.style.borderRadius = Math.random() > 0.5 ? '50%' : '0'
+      confetti.style.opacity = '1'
+      confetti.style.pointerEvents = 'none'
+      confetti.style.zIndex = '9999'
+      confetti.style.transform = `rotate(${Math.random() * 360}deg)`
+      
+      document.body.appendChild(confetti)
+
+      const duration = Math.random() * 3 + 2
+      const finalX = (Math.random() - 0.5) * 200
+      
+      confetti.animate([
+        { transform: `translate(0, 0) rotate(0deg)`, opacity: 1 },
+        { transform: `translate(${finalX}px, ${window.innerHeight + 10}px) rotate(${Math.random() * 720}deg)`, opacity: 0 }
+      ], {
+        duration: duration * 1000,
+        easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+      }).onfinish = () => confetti.remove()
+    }
   }
 
   const handleReveal = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Verrou: empêcher les soumissions multiples
     if (isSubmitting.current) {
       console.log("⚠️ Soumission déjà en cours, ignorée")
       return
@@ -63,7 +73,7 @@ export default function Home() {
     try {
       const trimmedName = name.trim()
 
-      // ÉTAPE 1: Vérifier si l'étudiant existe dans la table students
+      // ÉTAPE 1: Vérifier si l'étudiant existe
       const { data: studentExists, error: studentCheckError } = await supabase
         .from("students")
         .select("name")
@@ -73,35 +83,34 @@ export default function Home() {
       if (studentCheckError || !studentExists || studentExists.length === 0) {
         setError("Nom non trouvé dans la liste des étudiants. Vérifiez l'orthographe.")
         setIsLoading(false)
+        isSubmitting.current = false
         return
       }
 
-      // Si plusieurs résultats trouvés, demander de préciser
       if (studentExists.length > 1) {
-        const names = studentExists.map(s => s.name).join(", ")
         setError(`Plusieurs étudiants trouvés. Soyez plus précis.`)
         setIsLoading(false)
+        isSubmitting.current = false
         return
       }
 
       const exactStudentName = studentExists[0].name
 
-      // ÉTAPE 2: Vérifier si CET ÉTUDIANT a déjà fait son tirage
+      // ÉTAPE 2: Vérifier si déjà un tirage
       const { data: existingAssignment } = await supabase
         .from("assignments")
         .select("secret_friend_name")
         .eq("student_name", exactStudentName)
         .maybeSingle()
 
-      // ⚠️ PROTECTION : Ce nom a déjà tiré son ami secret
       if (existingAssignment) {
         setError("⚠️ Ce nom a déjà un ami secret assigné. Tapez VOTRE nom et gardez le secret ! 🤫")
         setIsLoading(false)
-        isSubmitting.current = false // Libérer le verrou
+        isSubmitting.current = false
         return
       }
 
-      // ÉTAPE 3: Nouveau tirage pour cet étudiant
+      // ÉTAPE 3: Nouveau tirage
       const { data: allStudents, error: studentsError } = await supabase
         .from("students")
         .select("name")
@@ -109,17 +118,16 @@ export default function Home() {
       if (studentsError || !allStudents || allStudents.length === 0) {
         setError("Impossible de récupérer la liste des étudiants.")
         setIsLoading(false)
+        isSubmitting.current = false
         return
       }
 
-      // Récupérer les amis secrets déjà assignés
       const { data: alreadyAssigned } = await supabase
         .from("assignments")
         .select("secret_friend_name")
 
       const assignedNames = new Set(alreadyAssigned?.map(a => a.secret_friend_name) || [])
 
-      // Filtrer les étudiants disponibles
       let availableStudents = allStudents
         .map(s => s.name)
         .filter(studentName => 
@@ -127,7 +135,6 @@ export default function Home() {
           studentName !== exactStudentName
         )
 
-      // Cas limite: permettre les doublons si nécessaire
       if (availableStudents.length === 0) {
         availableStudents = allStudents
           .map(s => s.name)
@@ -137,14 +144,14 @@ export default function Home() {
       if (availableStudents.length === 0) {
         setError("Plus d'amis secrets disponibles. Contactez l'administrateur.")
         setIsLoading(false)
+        isSubmitting.current = false
         return
       }
 
-      // TIRAGE ALÉATOIRE
       const randomIndex = Math.floor(Math.random() * availableStudents.length)
       const selectedSecretFriend = availableStudents[randomIndex]
 
-      // ÉTAPE 4: Enregistrer l'assignation (UNE SEULE FOIS)
+      // ÉTAPE 4: Enregistrer
       const { error: insertError } = await supabase
         .from("assignments")
         .insert({
@@ -156,23 +163,23 @@ export default function Home() {
         console.error("Erreur insertion:", insertError)
         setError("Erreur lors de l'enregistrement du tirage.")
         setIsLoading(false)
+        isSubmitting.current = false
         return
       }
 
-      // ÉTAPE 5: Afficher le résultat avec animation
+      // ÉTAPE 5: Afficher le résultat
       setTimeout(() => {
         setSecretFriend(selectedSecretFriend)
         setShowResult(true)
         setIsLoading(false)
-        isSubmitting.current = false // Libérer le verrou
-        setCountdown(10) // Démarrer le compte à rebours
+        isSubmitting.current = false
       }, 1500)
 
     } catch (err) {
       console.error("Erreur:", err)
       setError("Une erreur s'est produite. Veuillez réessayer.")
       setIsLoading(false)
-      isSubmitting.current = false // Libérer le verrou même en cas d'erreur
+      isSubmitting.current = false
     }
   }
 
@@ -185,6 +192,10 @@ export default function Home() {
   }
 
   const toggleReveal = () => {
+    if (!isRevealed) {
+      // Lancer les confettis quand on révèle
+      createConfetti()
+    }
     setIsRevealed(!isRevealed)
   }
 
@@ -257,7 +268,7 @@ export default function Home() {
                   <Lock className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <p className="leading-relaxed">
                     Ton ami imaginaire sera tiré au sort lors de ta première recherche. 
-                    <strong> Tu ne pourras le voir qu'UNE SEULE FOIS</strong>, alors note-le bien !
+                    <strong> Note-le bien car tu ne pourras plus le retrouver !</strong>
                   </p>
                 </div>
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -280,9 +291,6 @@ export default function Home() {
               <CardTitle className="text-2xl font-bold text-foreground">
                 Ton ami imaginaire est...
               </CardTitle>
-              <div className="text-sm text-amber-600 font-medium bg-amber-50 py-2 px-4 rounded-lg">
-                ⏱️ Cette page se fermera dans {countdown} secondes
-              </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="p-6 bg-gradient-to-r from-pink-50 to-purple-50 rounded-xl border-2 border-pink-200">
@@ -293,12 +301,12 @@ export default function Home() {
                       className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
                     >
                       <Eye className="h-4 w-4 mr-2" />
-                      Cliquer pour révéler
+                      Cliquer pour révéler 🎉
                     </Button>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-2xl font-bold text-center text-transparent bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text leading-relaxed">
+                    <p className="text-2xl font-bold text-center text-transparent bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text leading-relaxed animate-in zoom-in duration-500">
                       {secretFriend}
                     </p>
                     <Button
