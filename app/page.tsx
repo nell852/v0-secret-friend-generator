@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +18,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false)
   const [isRevealed, setIsRevealed] = useState(false)
   const [countdown, setCountdown] = useState(10)
-  const isSubmitting = React.useRef(false) // Verrou pour éviter les soumissions multiples
+  const isSubmitting = useRef(false) // Verrou pour éviter les soumissions multiples
 
   // Compteur de 10 secondes avant de cacher automatiquement
   useEffect(() => {
