@@ -1,13 +1,13 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { Gift, Sparkles, Heart, Copy, Check } from "lucide-react"
+import { Gift, Sparkles, Heart, Copy, Check, Lock, Eye, EyeOff } from "lucide-react"
 
 export default function Home() {
   const [name, setName] = useState("")
@@ -16,6 +16,30 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [showResult, setShowResult] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isRevealed, setIsRevealed] = useState(false)
+  const [countdown, setCountdown] = useState(10)
+
+  // Compteur de 10 secondes avant de cacher automatiquement
+  useEffect(() => {
+    if (showResult && countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000)
+      return () => clearTimeout(timer)
+    }
+    if (countdown === 0 && showResult) {
+      // Réinitialiser complètement après 10 secondes
+      handleAutoReset()
+    }
+  }, [countdown, showResult])
+
+  const handleAutoReset = () => {
+    setName("")
+    setSecretFriend(null)
+    setShowResult(false)
+    setError(null)
+    setCopied(false)
+    setIsRevealed(false)
+    setCountdown(10)
+  }
 
   const handleReveal = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,6 +47,7 @@ export default function Home() {
     setError(null)
     setSecretFriend(null)
     setShowResult(false)
+    setIsRevealed(false)
 
     const supabase = createClient()
 
@@ -30,7 +55,6 @@ export default function Home() {
       const trimmedName = name.trim()
 
       // ÉTAPE 1: Vérifier si l'étudiant existe dans la table students
-      // Recherche flexible : nom partiel accepté
       const { data: studentExists, error: studentCheckError } = await supabase
         .from("students")
         .select("name")
@@ -46,35 +70,28 @@ export default function Home() {
       // Si plusieurs résultats trouvés, demander de préciser
       if (studentExists.length > 1) {
         const names = studentExists.map(s => s.name).join(", ")
-        setError(`Plusieurs étudiants trouvés : ${names}. Veuillez préciser.`)
+        setError(`Plusieurs étudiants trouvés. Soyez plus précis.`)
         setIsLoading(false)
         return
       }
 
       const exactStudentName = studentExists[0].name
 
-      // ÉTAPE 2: Vérifier si CET ÉTUDIANT SPÉCIFIQUE a déjà une assignation
+      // ÉTAPE 2: Vérifier si CET ÉTUDIANT a déjà fait son tirage
       const { data: existingAssignment } = await supabase
         .from("assignments")
         .select("secret_friend_name")
-        .ilike("student_name", exactStudentName)
+        .eq("student_name", exactStudentName)
         .maybeSingle()
 
-      // Si CET étudiant a déjà un ami secret, on le retourne
+      // ⚠️ PROTECTION : Ce nom a déjà tiré son ami secret
       if (existingAssignment) {
-        console.log(`✅ ${exactStudentName} a déjà un ami: ${existingAssignment.secret_friend_name}`)
-        setTimeout(() => {
-          setSecretFriend(existingAssignment.secret_friend_name)
-          setShowResult(true)
-          setIsLoading(false)
-        }, 1500)
+        setError("⚠️ Ce nom a déjà un ami secret assigné. Tapez VOTRE nom et gardez le secret ! 🤫")
+        setIsLoading(false)
         return
       }
 
-      // ÉTAPE 3: CET étudiant n'a PAS encore de tirage → On fait un nouveau tirage JUSTE POUR LUI
-      console.log(`🎲 Nouveau tirage pour ${exactStudentName}...`)
-
-      // Récupérer TOUS les étudiants
+      // ÉTAPE 3: Nouveau tirage pour cet étudiant
       const { data: allStudents, error: studentsError } = await supabase
         .from("students")
         .select("name")
@@ -85,47 +102,39 @@ export default function Home() {
         return
       }
 
-      // Récupérer UNIQUEMENT les noms qui ont DÉJÀ ÉTÉ ASSIGNÉS comme amis secrets
+      // Récupérer les amis secrets déjà assignés
       const { data: alreadyAssigned } = await supabase
         .from("assignments")
         .select("secret_friend_name")
 
       const assignedNames = new Set(alreadyAssigned?.map(a => a.secret_friend_name) || [])
-      console.log(`📋 Amis déjà assignés (${assignedNames.size}):`, Array.from(assignedNames))
 
-      // Filtrer: prendre SEULEMENT ceux qui ne sont PAS encore amis secrets de quelqu'un
-      // ET ne pas se choisir soi-même
+      // Filtrer les étudiants disponibles
       let availableStudents = allStudents
         .map(s => s.name)
         .filter(studentName => 
-          !assignedNames.has(studentName) &&  // Pas encore assigné
-          studentName !== exactStudentName     // Pas soi-même
+          !assignedNames.has(studentName) &&
+          studentName !== exactStudentName
         )
 
-      console.log(`✨ Étudiants disponibles (${availableStudents.length}):`, availableStudents)
-
-      // Cas limite: si TOUT LE MONDE sauf soi-même a déjà été assigné
+      // Cas limite: permettre les doublons si nécessaire
       if (availableStudents.length === 0) {
-        console.log("⚠️ Tous les autres sont déjà pris, on permet les doublons")
         availableStudents = allStudents
           .map(s => s.name)
           .filter(studentName => studentName !== exactStudentName)
       }
 
-      // Si vraiment personne n'est disponible (ne devrait jamais arriver)
       if (availableStudents.length === 0) {
         setError("Plus d'amis secrets disponibles. Contactez l'administrateur.")
         setIsLoading(false)
         return
       }
 
-      // TIRAGE ALÉATOIRE parmi les disponibles
+      // TIRAGE ALÉATOIRE
       const randomIndex = Math.floor(Math.random() * availableStudents.length)
       const selectedSecretFriend = availableStudents[randomIndex]
 
-      console.log(`🎯 Tirage: ${exactStudentName} → ${selectedSecretFriend}`)
-
-      // ÉTAPE 4: Enregistrer UNIQUEMENT cette assignation dans la BD
+      // ÉTAPE 4: Enregistrer l'assignation (UNE SEULE FOIS)
       const { error: insertError } = await supabase
         .from("assignments")
         .insert({
@@ -134,23 +143,22 @@ export default function Home() {
         })
 
       if (insertError) {
-        console.error("❌ Erreur insertion:", insertError)
+        console.error("Erreur insertion:", insertError)
         setError("Erreur lors de l'enregistrement du tirage.")
         setIsLoading(false)
         return
       }
 
-      console.log(`✅ Assignation enregistrée en BD`)
-
-      // ÉTAPE 5: Afficher le résultat
+      // ÉTAPE 5: Afficher le résultat avec animation
       setTimeout(() => {
         setSecretFriend(selectedSecretFriend)
         setShowResult(true)
         setIsLoading(false)
+        setCountdown(10) // Démarrer le compte à rebours
       }, 1500)
 
     } catch (err) {
-      console.error("❌ Erreur:", err)
+      console.error("Erreur:", err)
       setError("Une erreur s'est produite. Veuillez réessayer.")
       setIsLoading(false)
     }
@@ -164,12 +172,8 @@ export default function Home() {
     }
   }
 
-  const handleReset = () => {
-    setName("")
-    setSecretFriend(null)
-    setShowResult(false)
-    setError(null)
-    setCopied(false)
+  const toggleReveal = () => {
+    setIsRevealed(!isRevealed)
   }
 
   return (
@@ -193,24 +197,27 @@ export default function Home() {
               <form onSubmit={handleReveal} className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="name" className="text-base font-medium">
-                    Entre ton nom (complet ou partiel)
+                    Entre TON nom (complet ou partiel)
                   </Label>
                   <Input
                     id="name"
                     type="text"
-                    placeholder="Ex: NOMO ou NATHANIEL ou NOMO BELLA"
+                    placeholder="Ex: NOMO ou NATHANIEL"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                     className="text-base"
                     disabled={isLoading}
+                    autoComplete="off"
                   />
-                  <p className="text-xs text-muted-foreground">Tu peux taper juste ton nom de famille ou un de tes prénoms</p>
+                  <p className="text-xs text-muted-foreground">
+                    ⚠️ Tape uniquement TON nom. Ne cherche pas les amis des autres !
+                  </p>
                 </div>
 
                 {error && (
                   <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <p className="text-sm text-red-600">{error}</p>
+                    <p className="text-sm text-red-600 font-medium">{error}</p>
                   </div>
                 )}
 
@@ -233,10 +240,19 @@ export default function Home() {
                 </Button>
               </form>
 
-              <div className="mt-6 pt-6 border-t text-center">
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Ton ami imaginaire sera tiré au sort lors de ta première recherche et restera le même à chaque fois.
-                </p>
+              <div className="mt-6 pt-6 border-t space-y-3">
+                <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Lock className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <p className="leading-relaxed">
+                    Ton ami imaginaire sera tiré au sort lors de ta première recherche. 
+                    <strong> Tu ne pourras le voir qu'UNE SEULE FOIS</strong>, alors note-le bien !
+                  </p>
+                </div>
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800 font-medium text-center">
+                    🤫 Garde le secret ! Ne cherche pas les amis des autres.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -249,17 +265,50 @@ export default function Home() {
                   <Sparkles className="h-8 w-8 text-yellow-400 absolute -top-2 -right-2" />
                 </div>
               </div>
-              <CardTitle className="text-2xl font-bold text-foreground">Ton ami imaginaire est...</CardTitle>
+              <CardTitle className="text-2xl font-bold text-foreground">
+                Ton ami imaginaire est...
+              </CardTitle>
+              <div className="text-sm text-amber-600 font-medium bg-amber-50 py-2 px-4 rounded-lg">
+                ⏱️ Cette page se fermera dans {countdown} secondes
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="p-6 bg-gradient-to-r from-pink-50 to-purple-50 rounded-xl border-2 border-pink-200">
-                <p className="text-2xl font-bold text-center text-transparent bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text leading-relaxed">
-                  {secretFriend}
-                </p>
+                {!isRevealed ? (
+                  <div className="text-center">
+                    <Button
+                      onClick={toggleReveal}
+                      className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      Cliquer pour révéler
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-2xl font-bold text-center text-transparent bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text leading-relaxed">
+                      {secretFriend}
+                    </p>
+                    <Button
+                      onClick={toggleReveal}
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                    >
+                      <EyeOff className="h-4 w-4 mr-2" />
+                      Masquer
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3">
-                <Button onClick={handleCopy} variant="outline" className="flex-1 h-11 bg-transparent" disabled={copied}>
+                <Button 
+                  onClick={handleCopy} 
+                  variant="outline" 
+                  className="flex-1 h-11 bg-transparent" 
+                  disabled={copied || !isRevealed}
+                >
                   {copied ? (
                     <span className="flex items-center gap-2">
                       <Check className="h-4 w-4" />
@@ -272,18 +321,17 @@ export default function Home() {
                     </span>
                   )}
                 </Button>
-                <Button
-                  onClick={handleReset}
-                  className="flex-1 h-11 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
-                >
-                  Nouvelle recherche
-                </Button>
               </div>
 
-              <div className="pt-4 border-t">
+              <div className="pt-4 border-t space-y-3">
                 <p className="text-sm text-muted-foreground text-center leading-relaxed">
-                  Fais un beau cadeau à ton ami imaginaire et garde cette information secrète! 🎁
+                  🎁 Note bien ce nom, tu ne pourras plus le voir après !
                 </p>
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-xs text-red-700 font-medium text-center">
+                    ⚠️ GARDE LE SECRET ! Ne partage pas ton ami imaginaire avec les autres.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
