@@ -18,6 +18,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false)
   const [isRevealed, setIsRevealed] = useState(false)
   const [countdown, setCountdown] = useState(10)
+  const isSubmitting = React.useRef(false) // Verrou pour éviter les soumissions multiples
 
   // Compteur de 10 secondes avant de cacher automatiquement
   useEffect(() => {
@@ -43,6 +44,14 @@ export default function Home() {
 
   const handleReveal = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Verrou: empêcher les soumissions multiples
+    if (isSubmitting.current) {
+      console.log("⚠️ Soumission déjà en cours, ignorée")
+      return
+    }
+    
+    isSubmitting.current = true
     setIsLoading(true)
     setError(null)
     setSecretFriend(null)
@@ -88,6 +97,7 @@ export default function Home() {
       if (existingAssignment) {
         setError("⚠️ Ce nom a déjà un ami secret assigné. Tapez VOTRE nom et gardez le secret ! 🤫")
         setIsLoading(false)
+        isSubmitting.current = false // Libérer le verrou
         return
       }
 
@@ -154,6 +164,7 @@ export default function Home() {
         setSecretFriend(selectedSecretFriend)
         setShowResult(true)
         setIsLoading(false)
+        isSubmitting.current = false // Libérer le verrou
         setCountdown(10) // Démarrer le compte à rebours
       }, 1500)
 
@@ -161,6 +172,7 @@ export default function Home() {
       console.error("Erreur:", err)
       setError("Une erreur s'est produite. Veuillez réessayer.")
       setIsLoading(false)
+      isSubmitting.current = false // Libérer le verrou même en cas d'erreur
     }
   }
 
